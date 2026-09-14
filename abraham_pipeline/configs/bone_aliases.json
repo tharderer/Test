@@ -1,0 +1,13 @@
+{
+  "root": ["root", "Root", "Armature"],
+  "hips": ["hips", "Hips", "mixamorig:Hips", "pelvis", "Pelvis"],
+  "spine": ["spine", "Spine", "mixamorig:Spine"],
+  "chest": ["chest", "Chest", "Spine1", "mixamorig:Spine1"],
+  "upper_chest": ["upper_chest", "UpperChest", "Spine2", "mixamorig:Spine2"],
+  "neck": ["neck", "Neck", "mixamorig:Neck"],
+  "head": ["head", "Head", "mixamorig:Head"],
+  "right_hand": ["right_hand", "RightHand", "Hand.R", "mixamorig:RightHand"],
+  "left_hand": ["left_hand", "LeftHand", "Hand.L", "mixamorig:LeftHand"],
+  "right_foot": ["right_foot", "RightFoot", "Foot.R", "mixamorig:RightFoot"],
+  "left_foot": ["left_foot", "LeftFoot", "Foot.L", "mixamorig:LeftFoot"]
+}
