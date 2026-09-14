@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from blender_pipeline.animations import import_action
+from blender_pipeline.scene_state import normalize_hierarchy, reset_pose, set_action
 from blender_pipeline.common import clear_scene, find_primary_armature, find_primary_body_mesh, import_glb, world_bbox
 from blender_pipeline.rig_contract import CANONICAL, ensure_socket, normalize_rig, resolve_bone_roles
 from blender_pipeline.fit_staff import fit_staff
@@ -58,20 +59,7 @@ def _normalize_base(args) -> None:
     normalize_rig(armature, role_map)
 
     mesh_objects = [obj for obj in imported if obj.type == 'MESH']
-    mins, maxs = world_bbox(mesh_objects)
-    height = maxs.z - mins.z
-    if height <= 1e-8:
-        raise RuntimeError('canonical character height is zero')
-    factor = config.canonical_height_m / height
-    for obj in imported:
-        obj.scale = tuple(component * factor for component in obj.scale)
-
-    bpy.ops.object.select_all(action='DESELECT')
-    for obj in imported:
-        obj.select_set(True)
-    if imported:
-        bpy.context.view_layer.objects.active = imported[0]
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    normalize_hierarchy(imported, mesh_objects, config.canonical_height_m)
 
     ensure_socket(armature)
 
@@ -82,6 +70,9 @@ def _normalize_base(args) -> None:
     }
     for action_name, path in actions.items():
         import_action(str(path), armature, aliases, action_name)
+
+    reset_pose(armature)
+    bpy.context.view_layer.update()
 
     final_mins, final_maxs = world_bbox([obj for obj in bpy.context.scene.objects if obj.type == 'MESH'])
     final_height = final_maxs.z - final_mins.z
@@ -190,9 +181,7 @@ def _render_mantle_validation(out_dir: Path, armature) -> None:
         start, end = run.frame_range
         frames.append(('mantle_run.png', run, int(start + 0.5 * (end - start))))
     for filename, action, frame in frames:
-        if armature.animation_data is None:
-            armature.animation_data_create()
-        armature.animation_data.action = action
+        set_action(armature, action)
         bpy.context.scene.frame_set(frame)
         bpy.context.scene.render.filepath = str((render_dir / filename).resolve())
         bpy.ops.render.render(write_still=True)
@@ -237,6 +226,7 @@ def _validate_stage(args) -> None:
         config.validation,
     )
     (reports_dir / 'validation.json').write_text(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2), flush=True)
     if not report['pass']:
         raise SystemExit(2)
 

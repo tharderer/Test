@@ -42,6 +42,7 @@ def find_primary_body_mesh(armature):
 def world_bbox(objects):
     from mathutils import Vector
 
+    _bpy().context.view_layer.update()
     points = []
     for obj in objects:
         if obj.type != 'MESH':
@@ -63,8 +64,14 @@ def join_meshes(objects, name: str):
     for obj in meshes:
         obj.select_set(True)
     bpy.context.view_layer.objects.active = meshes[0]
-    bpy.ops.object.join()
+    if len(meshes) > 1:
+        bpy.ops.object.join()
     result = bpy.context.view_layer.objects.active
+    bpy.context.view_layer.update()
+    world = result.matrix_world.copy()
+    result.parent = None
+    result.matrix_world = world
+    bpy.context.view_layer.update()
     result.name = name
     return result
 
@@ -74,7 +81,9 @@ def apply_object_transforms(obj, *, location=False, rotation=True, scale=True):
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
+    bpy.context.view_layer.update()
     bpy.ops.object.transform_apply(location=location, rotation=rotation, scale=scale)
+    bpy.context.view_layer.update()
 
 
 def vertex_weight_snapshot(obj, vertex_index: int) -> list[tuple[str, float]]:
@@ -123,6 +132,10 @@ def restrict_vertex_groups(target, allowed_names: set[str]) -> None:
 
 def transfer_weights_nearest(target, source_body, armature, max_influences: int = 4):
     bpy = _bpy()
+    deform_names = {bone.name for bone in armature.data.bones if bone.use_deform}
+    for group in list(target.vertex_groups):
+        if group.name not in deform_names:
+            target.vertex_groups.remove(group)
     for bone in armature.data.bones:
         if bone.use_deform and target.vertex_groups.get(bone.name) is None:
             target.vertex_groups.new(name=bone.name)
@@ -148,4 +161,9 @@ def transfer_weights_nearest(target, source_body, armature, max_influences: int 
     else:
         for modifier in armature_modifiers:
             modifier.object = armature
+    world = target.matrix_world.copy()
+    target.parent = armature
+    target.matrix_parent_inverse = armature.matrix_world.inverted()
+    target.matrix_world = world
+    bpy.context.view_layer.update()
     return target

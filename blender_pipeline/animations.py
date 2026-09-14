@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from .common import import_glb
+from .scene_state import reset_pose, set_action
 from .rig_contract import CANONICAL, resolve_bone_roles
 
 _BONE_PATH = re.compile(r'pose\.bones\["([^"]+)"\]')
@@ -47,9 +48,11 @@ def import_action(glb_path: str, canonical_armature, alias_map: dict[str, list[s
 
     if canonical_armature.animation_data is None:
         canonical_armature.animation_data_create()
-    canonical_armature.animation_data.action = action
+    set_action(canonical_armature, action)
     action.use_fake_user = True
 
     for obj in imported:
         bpy.data.objects.remove(obj, do_unlink=True)
+    reset_pose(canonical_armature)
+    bpy.context.view_layer.update()
     return action
