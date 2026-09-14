@@ -16,7 +16,7 @@ def blender_binary(repo_root: Path) -> Path:
 
 def run_blender(repo_root: Path, script: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     cmd = [
-        str(blender_binary(repo_root)), '--background', '--factory-startup', '--python',
-        str(script), '--', *args,
+        str(blender_binary(repo_root)), '--background', '--factory-startup',
+        '--python-exit-code', '1', '--python', str(script), '--', *args,
     ]
     return subprocess.run(cmd, cwd=repo_root, check=True, text=True, capture_output=True)
