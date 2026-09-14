@@ -14,7 +14,7 @@ def clearance_correction(point, nearest, normal, margin=.008, maximum=.06):
     return tuple(float(n) * (margin - signed) for n in normal)
 
 
-def resolve_pose_clearance(gear, body, armature, rounds=8):
+def resolve_pose_clearance(gear, body, armature, rounds=3):
     import bpy
     from mathutils import Vector, Matrix
     from .scene_state import reset_pose, set_action
