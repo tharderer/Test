@@ -46,6 +46,7 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
     normals = world.to_3x3().inverted().transposed()
     bm = bmesh.new()
     bm.from_mesh(template.data)
+    bm.verts.index_update()
     source_index = bm.verts.layers.int.new('template_source_index')
     for v in bm.verts:
         v[source_index] = v.index
@@ -65,7 +66,6 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
     template.data.update()
     if len(template.data.polygons) < 100:
         raise RuntimeError('canonical mantle template has insufficient surface coverage')
-
     template.data.materials.clear()
     for material in design.data.materials:
         template.data.materials.append(material)
@@ -82,12 +82,12 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
     uv.use_loop_data = True
     uv.data_types_loops = {'UV'}
     uv.loop_mapping = 'POLYINTERP_NEAREST'
-    uv.layers_uv_select_src = 'ACTIVE'
-    uv.layers_uv_select_dst = 'ACTIVE'
+    uv.layers_uv_select_src = 'ALL'
+    uv.layers_uv_select_dst = 'NAME'
     bpy.ops.object.modifier_apply(modifier=uv.name)
     modifier = template.modifiers.new(name='AbrahamArmature', type='ARMATURE')
     modifier.object = armature
-    limit_and_normalize_weights(template, 4)
+    limit_and_normalize_weights(template, max_influences=4)
     template['template_authored'] = True
     print(f'Mantle authored from canonical robe: {len(template.data.vertices)} vertices, exact source skin weights', flush=True)
     bpy.data.objects.remove(design, do_unlink=True)
@@ -99,7 +99,6 @@ def fit_mantle(source_path: str, body, armature, profile: dict[str, object]):
     import bpy
     from mathutils import Vector
     from .scene_state import reset_pose
-
     reset_pose(armature)
     bpy.context.view_layer.update()
     design = join_meshes(import_glb(source_path), 'Mantle_AIDesign')

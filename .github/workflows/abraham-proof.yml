@@ -1,17 +1,13 @@
 name: Abraham Modular Proof
-
 on:
   push:
     branches: [abraham-modular-proof]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: abraham-modular-proof-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -40,6 +36,12 @@ jobs:
         run: |
           set -o pipefail
           xvfb-run -a make verify 2>&1 | tee build.log
+      - name: Package and test the phone viewer
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install chromium
+          node scripts/package_viewer.mjs
+          node scripts/smoke_viewer.mjs
       - name: Preserve build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,6 +60,7 @@ jobs:
         with:
           name: abraham-modular-proof
           path: |
+            delivery/
             abraham_upgrade_proof/
             assets/build/mobile/
             assets/build/source-quality/
