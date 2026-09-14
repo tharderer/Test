@@ -22,7 +22,7 @@ def mantle_face_is_in_template(point, cx, cy, hem, shoulder, half_width):
 
 
 def _author_body_template(body, design, armature, hem, shoulder, clearance):
-    """Author a garment shell using canonical robe topology and exact weights."""
+    """Author a garment shell using canonical robe topology and shared weights."""
     import bpy
     import bmesh
     from .cloth_material import apply_weave_material
@@ -44,9 +44,6 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
     bm = bmesh.new()
     bm.from_mesh(template.data)
     bm.verts.index_update()
-    source_index = bm.verts.layers.int.new('template_source_index')
-    for v in bm.verts:
-        v[source_index] = v.index
     remove = []
     for face in bm.faces:
         point = world @ face.calc_center_median()
@@ -54,9 +51,13 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
                                           .14 * (upper.z - lower.z)):
             remove.append(face)
     bmesh.ops.delete(bm, geom=remove, context='FACES')
+    # UV/material seams in the imported robe contain duplicate vertices.
+    # Weld before displacement, so those seams cannot open into cracks.
+    world_scale = sum(world.to_scale()) / 3
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=.0003 / world_scale)
+    bm.normal_update()
     for v in bm.verts:
-        source = body.data.vertices[v[source_index]]
-        normal = (normals @ source.normal).normalized()
+        normal = (normals @ v.normal).normalized()
         v.co = inverse @ ((world @ v.co) + normal * clearance)
     bm.to_mesh(template.data)
     bm.free()
@@ -68,7 +69,7 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
     modifier.object = armature
     limit_and_normalize_weights(template, max_influences=4)
     template['template_authored'] = True
-    print(f'Mantle authored from canonical robe: {len(template.data.vertices)} vertices, exact source skin weights', flush=True)
+    print(f'Mantle authored from canonical robe: {len(template.data.vertices)} welded vertices with shared skin weights', flush=True)
     bpy.data.objects.remove(design, do_unlink=True)
     template.name = 'Equip_Mantle'
     return template
