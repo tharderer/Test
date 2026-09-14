@@ -1,0 +1,66 @@
+name: Abraham Modular Pipeline
+
+on:
+  push:
+    branches:
+      - abraham-modular-pipeline-20260914
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install test dependency
+        working-directory: abraham_pipeline
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Run unit tests
+        working-directory: abraham_pipeline
+        run: pytest -v
+
+      - name: Build Blender proof
+        working-directory: abraham_pipeline
+        run: make proof
+
+      - name: Verify mobile bundle ceiling
+        working-directory: abraham_pipeline
+        run: python -c "from pathlib import Path; p=Path('assets/build/mobile/abraham_upgrade_bundle.glb'); assert p.exists(), p; assert p.stat().st_size <= 18*1024*1024, p.stat().st_size; print(f'bundle: {p.stat().st_size/1024/1024:.2f} MB')"
+
+      - name: Upload proof bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: abraham-modular-proof
+          path: |
+            abraham_pipeline/abraham_upgrade_proof/index.html
+            abraham_pipeline/abraham_upgrade_proof/main.js
+            abraham_pipeline/abraham_upgrade_proof/styles.css
+            abraham_pipeline/abraham_upgrade_proof/assets/abraham_upgrade_bundle.glb
+            abraham_pipeline/assets/build/reports/**
+            abraham_pipeline/assets/build/source-quality/**
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: abraham-modular-diagnostics
+          path: |
+            abraham_pipeline/assets/build/reports/**
+            abraham_pipeline/assets/build/source-quality/**
+            abraham_pipeline/assets/build/work/**
+          if-no-files-found: ignore
+          retention-days: 7
