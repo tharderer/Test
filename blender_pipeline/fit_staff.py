@@ -36,7 +36,6 @@ def _anchor_socket_at_palm(armature, socket_bone):
         hand = armature.data.edit_bones[CANONICAL['right_hand']]
         socket = armature.data.edit_bones[socket_bone]
         direction = (hand.tail - hand.head).normalized()
-        # Imported leaf bone tails are display heuristics, not wrist joints.
         socket.head = hand.head + direction * (.035 / unit_scale)
         socket.tail = socket.head + direction * (.025 / unit_scale)
     finally:
@@ -65,12 +64,18 @@ def fit_staff(source_path: str, armature, *, socket_bone: str = 'Socket_RightHan
     scale = staff_target_length(canonical_height_m, profile) / current_length
     staff.scale = (scale, scale, scale)
     apply_object_transforms(staff, rotation=False, scale=True)
+    staff.scale.x = min(1., .11 / staff.dimensions.x)
+    staff.scale.y = min(1., .035 / staff.dimensions.y)
+    apply_object_transforms(staff, rotation=False, scale=True)
     zs = [v.co.z for v in staff.data.vertices]
     grip_z = min(zs) + staff_grip_fraction_from_bottom(profile) * (max(zs) - min(zs))
-    xs = [v.co.x for v in staff.data.vertices]
-    ys = [v.co.y for v in staff.data.vertices]
-    staff.data.transform(Matrix.Translation((-(min(xs) + max(xs)) / 2,
-                                            -(min(ys) + max(ys)) / 2, -grip_z)))
+    staff.data.transform(Matrix.Translation((0, 0, -grip_z)))
+    grip_vertices = [v.co for v in staff.data.vertices if abs(v.co.z) <= .06]
+    if not grip_vertices:
+        grip_vertices = [v.co for v in sorted(staff.data.vertices, key=lambda v: abs(v.co.z))[:16]]
+    xs = [v.x for v in grip_vertices]
+    ys = [v.y for v in grip_vertices]
+    staff.data.transform(Matrix.Translation((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, 0)))
     staff.data.update()
     socket = armature.pose.bones[socket_bone]
     socket_world = armature.matrix_world @ socket.matrix

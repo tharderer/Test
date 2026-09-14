@@ -22,13 +22,10 @@ def mantle_face_is_in_template(point, cx, cy, hem, shoulder, half_width):
 
 
 def _author_body_template(body, design, armature, hem, shoulder, clearance):
-    """Use the canonical robe topology and exact weights for a compatible shell.
-
-    The AI garment supplies the material/UV design, not unrelated topology
-    stretched across moving joints. The robe itself always stays present.
-    """
+    """Author a garment shell using canonical robe topology and exact weights."""
     import bpy
     import bmesh
+    from .cloth_material import apply_weave_material
 
     lower, upper = world_bbox([body])
     center = (lower + upper) * .5
@@ -66,25 +63,7 @@ def _author_body_template(body, design, armature, hem, shoulder, clearance):
     template.data.update()
     if len(template.data.polygons) < 100:
         raise RuntimeError('canonical mantle template has insufficient surface coverage')
-    template.data.materials.clear()
-    for material in design.data.materials:
-        template.data.materials.append(material)
-    for polygon in template.data.polygons:
-        polygon.material_index = 0
-        polygon.use_smooth = True
-    if not template.data.uv_layers:
-        template.data.uv_layers.new(name='UVMap')
-    bpy.ops.object.select_all(action='DESELECT')
-    template.select_set(True)
-    bpy.context.view_layer.objects.active = template
-    uv = template.modifiers.new(name='TransferAIGarmentUVs', type='DATA_TRANSFER')
-    uv.object = design
-    uv.use_loop_data = True
-    uv.data_types_loops = {'UV'}
-    uv.loop_mapping = 'POLYINTERP_NEAREST'
-    uv.layers_uv_select_src = 'ALL'
-    uv.layers_uv_select_dst = 'NAME'
-    bpy.ops.object.modifier_apply(modifier=uv.name)
+    apply_weave_material(template, design, center, hem)
     modifier = template.modifiers.new(name='AbrahamArmature', type='ARMATURE')
     modifier.object = armature
     limit_and_normalize_weights(template, max_influences=4)
@@ -99,6 +78,7 @@ def fit_mantle(source_path: str, body, armature, profile: dict[str, object]):
     import bpy
     from mathutils import Vector
     from .scene_state import reset_pose
+    from .pose_clearance import resolve_pose_clearance
     reset_pose(armature)
     bpy.context.view_layer.update()
     design = join_meshes(import_glb(source_path), 'Mantle_AIDesign')
@@ -119,6 +99,7 @@ def fit_mantle(source_path: str, body, armature, profile: dict[str, object]):
     clearance = float(profile.get('surface_clearance_m', .024))
     fit_radial_surface(design, body, (center.x, center.y), clearance, .015)
     mantle = _author_body_template(body, design, armature, hem, shoulder, clearance)
+    resolve_pose_clearance(mantle, body, armature)
     mantle['hem_target_z'] = float(hem)
     mantle['validation_anchor_floor_z'] = mantle_anchor_floor(lower.z, upper.z, shoulder)
     return mantle
