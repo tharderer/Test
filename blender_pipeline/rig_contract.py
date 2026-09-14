@@ -58,7 +58,7 @@ def resolve_role_names(
     required_roles = REQUIRED_ROLES if required is None else required
     missing = sorted(required_roles - set(resolved))
     if missing:
-        raise RuntimeError(f'missing canonical bone roles: {missing}')
+        raise RuntimeError(f'missing canonical bone roles: {missing}; available source bones: {names}')
     return resolved
 
 
