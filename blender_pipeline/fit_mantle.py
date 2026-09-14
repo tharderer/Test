@@ -91,7 +91,14 @@ def fit_mantle(source_path: str, body, armature, profile: dict[str, object]):
     mantle.select_set(True)
     bpy.context.view_layer.objects.active = mantle
     if mantle.vertex_groups:
-        bpy.ops.object.vertex_group_smooth(group_select_mode='ALL', factor=0.5, repeat=3)
+        # The weight-edit operator polls for Edit or Weight Paint mode,
+        # even in headless Blender. Select all vertices explicitly.
+        bpy.ops.object.mode_set(mode='EDIT')
+        try:
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.object.vertex_group_smooth(group_select_mode='ALL', factor=0.5, repeat=3)
+        finally:
+            bpy.ops.object.mode_set(mode='OBJECT')
     limit_and_normalize_weights(mantle, max_influences=4)
 
     for obj in imported:
