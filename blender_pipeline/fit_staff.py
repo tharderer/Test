@@ -34,7 +34,12 @@ def fit_staff(
     canonical_height_m: float = 1.82,
     profile: dict[str, object] | None = None,
 ):
-    from mathutils import Matrix
+    import bpy
+    from mathutils import Matrix, Vector
+    from .scene_state import reset_pose
+
+    reset_pose(armature)
+    bpy.context.view_layer.update()
 
     profile = profile or {
         'height_fraction': 0.88,
@@ -63,12 +68,22 @@ def fit_staff(
     staff.data.transform(Matrix.Translation((0.0, 0.0, -grip_z)))
     staff.data.update()
 
+    # Author the staff upright in WORLD metres; preserve that transform when
+    # parenting. The imported rig may retain a centimetre-to-metre scale.
+    xs = [v.co.x for v in staff.data.vertices]
+    ys = [v.co.y for v in staff.data.vertices]
+    staff.data.transform(Matrix.Translation((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, 0)))
+    socket = armature.pose.bones[socket_bone]
+    socket_world = armature.matrix_world @ socket.matrix
+    grip_world = socket_world.translation + Vector((0.0, -0.015, 0.0))
+    desired_world = Matrix.Translation(grip_world)
     staff.parent = armature
     staff.parent_type = 'BONE'
     staff.parent_bone = socket_bone
     staff.matrix_parent_inverse = Matrix.Identity(4)
-    staff.location = (0.0, -0.035, 0.0)
-    staff.rotation_mode = 'XYZ'
-    staff.rotation_euler = (0.0, 0.0, radians(-8.0))
-    staff.scale = (1.0, 1.0, 1.0)
+    bpy.context.view_layer.update()
+    staff.matrix_world = desired_world
+    bpy.context.view_layer.update()
+    staff['socket_grip_offset'] = list(socket_world.inverted() @ grip_world)
+    print(f'Staff fitted world length: {max(staff.dimensions):.4f} m', flush=True)
     return staff
