@@ -1,0 +1,37 @@
+name: Abraham Modular Proof
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender 4.5.3 LTS
+        run: |
+          wget -q https://download.blender.org/release/Blender4.5/blender-4.5.3-linux-x64.tar.xz
+          tar -xf blender-4.5.3-linux-x64.tar.xz
+          echo "$PWD/blender-4.5.3-linux-x64" >> "$GITHUB_PATH"
+      - name: Fetch Abraham source assets
+        run: |
+          mkdir -p assets/source assets/animations
+          curl -L --fail --retry 3 -o assets/source/abraham_rigged.glb 'https://v3b.fal.media/files/b/0aaa63f9/wTNAAwYK4yttwaYl9od9q_rigged_character.glb'
+          curl -L --fail --retry 3 -o assets/animations/walking_armature.glb 'https://v3b.fal.media/files/b/0aaa63f8/41shVE3SGz0MsipFrQUPF_walking_armature.glb'
+          curl -L --fail --retry 3 -o assets/animations/running_armature.glb 'https://v3b.fal.media/files/b/0aaa63f8/ds7pB34b5TJ5mgE5VLs-A_running_armature.glb'
+      - name: Run Abraham pipeline
+        run: |
+          chmod +x scripts/*.sh
+          make proof BLENDER=blender
+          make verify BLENDER=blender
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: abraham-modular-proof
+          path: |
+            build/**
+            viewer/**
+            reports/**
+          if-no-files-found: error
+          retention-days: 7
