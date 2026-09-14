@@ -1,0 +1,39 @@
+{
+  "assets": [
+    {
+      "role": "base_rigged",
+      "filename": "abraham_base_rigged.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa63f9/wTNAAwYK4yttwaYl9od9q_rigged_character.glb"
+    },
+    {
+      "role": "staff",
+      "filename": "staff_source.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa647e/Vny9eG4sq9TiciLqu6QCg_model.glb"
+    },
+    {
+      "role": "belt",
+      "filename": "belt_source.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa647f/0lLXjB3onVCqu89DJJSF3_model.glb"
+    },
+    {
+      "role": "mantle",
+      "filename": "mantle_source.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa648b/8poobOizXShdgrEXo9b4C_model.glb"
+    },
+    {
+      "role": "idle",
+      "filename": "idle.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa63fb/0M54PP248kBVbzAD4jPNs_animation.glb"
+    },
+    {
+      "role": "walk",
+      "filename": "walk_armature.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa63f8/41shVE3SGz0MsipFrQUPF_walking_armature.glb"
+    },
+    {
+      "role": "run",
+      "filename": "run_armature.glb",
+      "url": "https://v3b.fal.media/files/b/0aaa63f8/ds7pB34b5TJ5mgE5VLs-A_running_armature.glb"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+.tools/
+assets/source/
+assets/build/
+abraham_upgrade_proof/assets/*.glb
+__pycache__/
+.pytest_cache/
+*.pyc
+.superpowers/
+.worktrees/

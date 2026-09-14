@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Abraham Modular Upgrade Proof</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="toolbar">
+      <section class="control-group" aria-label="Upgrade level">
+        <button data-level="0" class="active">Base</button>
+        <button data-level="1">+ Staff</button>
+        <button data-level="2">+ Belt</button>
+        <button data-level="3">+ Mantle</button>
+        <button data-level="4">Fully Equipped</button>
+      </section>
+      <section class="control-group" aria-label="Animation">
+        <button data-animation="Idle" class="active">Idle</button>
+        <button data-animation="Walk">Walk</button>
+        <button data-animation="Run">Run</button>
+      </section>
+      <section class="control-group utility-group">
+        <button id="reset-camera">Reset Camera</button>
+        <button id="auto-rotate">Auto Rotate</button>
+      </section>
+    </header>
+    <div id="viewport" aria-label="3D Abraham viewer"></div>
+    <footer id="status" role="status">Loading Abraham…</footer>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
