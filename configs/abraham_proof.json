@@ -2,39 +2,16 @@
   "canonical_height_m": 1.82,
   "equipment": {
     "staff": {
-      "class": "rigid",
-      "target_bone_role": "right_hand",
-      "clearance_m": 0.0,
-      "max_influences": 0,
-      "fit": {
-        "height_fraction": 0.88,
-        "grip_fraction_from_top": 0.38,
-        "long_axis": "Z",
-        "handedness": "right"
-      }
+      "class": "rigid", "target_bone_role": "right_hand", "clearance_m": 0.0, "max_influences": 0,
+      "fit": {"height_fraction": 0.88, "grip_fraction_from_top": 0.38, "long_axis": "Z", "handedness": "right"}
     },
     "belt": {
-      "class": "semi_skinned",
-      "target_bone_role": "hips",
-      "clearance_m": 0.008,
-      "max_influences": 4,
-      "fit": {
-        "waist_fraction_of_height": 0.55,
-        "radial_clearance_m": 0.008,
-        "allowed_bone_roles": ["hips", "spine", "chest"]
-      }
+      "class": "semi_skinned", "target_bone_role": "hips", "clearance_m": 0.008, "max_influences": 4,
+      "fit": {"waist_fraction_of_height": 0.55, "radial_clearance_m": 0.008, "allowed_bone_roles": ["hips", "spine", "chest"]}
     },
     "mantle": {
-      "class": "fully_skinned",
-      "target_bone_role": "chest",
-      "clearance_m": 0.012,
-      "max_influences": 4,
-      "fit": {
-        "shoulder_fraction_of_height": 0.82,
-        "hem_fraction_of_height": 0.38,
-        "surface_clearance_m": 0.012,
-        "allowed_bone_roles": ["hips", "spine", "chest", "upper_chest", "neck", "left_hand", "right_hand"]
-      }
+      "class": "fully_skinned", "target_bone_role": "chest", "clearance_m": 0.024, "max_influences": 4,
+      "fit": {"shoulder_fraction_of_height": 0.82, "hem_fraction_of_height": 0.38, "surface_clearance_m": 0.024, "allowed_bone_roles": ["hips", "spine", "chest", "upper_chest", "neck", "left_hand", "right_hand"]}
     }
   },
   "validation": {

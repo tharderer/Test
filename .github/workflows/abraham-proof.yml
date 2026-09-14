@@ -48,6 +48,8 @@ jobs:
           path: |
             build.log
             assets/build/reports/
+            assets/build/source-quality/mantle_skinned.glb
+            assets/source/staff_source.glb
           if-no-files-found: warn
           retention-days: 7
       - name: Upload validated proof

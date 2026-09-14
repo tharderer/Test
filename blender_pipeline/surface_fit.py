@@ -22,6 +22,17 @@ def classify_distance(offset, normal, maximum):
     return distance > maximum, signed < -0.004
 
 
+def surface_offset(normal, direction, clearance, relief):
+    """Preserve perpendicular clearance on shoulders, not just radial gap."""
+    length = sqrt(sum(float(v) ** 2 for v in normal))
+    if length < 1e-8:
+        raise ValueError('surface normal must be nonzero')
+    unit = tuple(float(v) / length for v in normal)
+    if sum(a * float(b) for a, b in zip(unit, direction)) < 0:
+        unit = tuple(-v for v in unit)
+    return tuple(a * clearance + float(b) * relief for a, b in zip(unit, direction))
+
+
 def world_bvh(body, depsgraph):
     from mathutils.bvhtree import BVHTree
     evaluated = body.evaluated_get(depsgraph)
@@ -84,7 +95,7 @@ def fit_radial_surface(gear, body, center_xy, clearance, max_detail):
             target = hit + normal * clearance
         else:
             relief = radial_detail(radius, baseline, max_detail)
-            target = hit + direction * (clearance + relief)
+            target = hit + Vector(surface_offset(normal, direction, clearance, relief))
         vertex.co = inverse @ target
     gear.data.update()
     bpy.context.view_layer.update()
