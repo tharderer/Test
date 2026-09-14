@@ -6,9 +6,13 @@ import { pathToFileURL } from 'node:url';
 await mkdir('assets/build/reports/browser', { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors = [];
+const networkFailures = [];
+let page;
 try {
-  const page = await browser.newPage({ viewport: { width: 412, height: 850 }, deviceScaleFactor: 1, offline: true });
-  page.on('pageerror', (error) => errors.push(error.message));
+  page = await browser.newPage({ viewport: { width: 412, height: 850 }, deviceScaleFactor: 1, offline: true });
+  page.on('pageerror', (error) => { errors.push(error.message); console.error('Browser error:', error.message); });
+  page.on('requestfailed', request => networkFailures.push({ url: request.url().slice(0, 180), error: request.failure()?.errorText }));
+  page.on('console', message => { if (message.type() === 'error') console.error('Browser console:', message.text().slice(0, 500)); });
   await page.goto(pathToFileURL(path.resolve('delivery/Abraham-Modular-Proof.html')).href);
   await page.waitForFunction(() => document.querySelector('#status').textContent.startsWith('Abraham loaded'), null, { timeout: 60000 });
   await page.locator('#pause-animation').click();
@@ -38,6 +42,11 @@ try {
   await page.screenshot({ path: 'assets/build/reports/browser/mobile-equipped.png' });
   if (errors.length) throw new Error(errors.join('\n'));
   await writeFile('assets/build/reports/browser/checks.json', JSON.stringify({ pass: true, offline: true, states, animated: ['Idle','Walk','Run'], errors }, null, 2));
+} catch (error) {
+  const status = page ? await page.locator('#status').textContent().catch(() => null) : null;
+  await writeFile('assets/build/reports/browser/failure.json', JSON.stringify({ error: String(error), errors, networkFailures, status }, null, 2));
+  if (page) await page.screenshot({ path: 'assets/build/reports/browser/failure.png' }).catch(() => {});
+  throw error;
 } finally {
   await browser.close();
 }

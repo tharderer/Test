@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'esbuild';
+import { spawnSync } from 'node:child_process';
 
 const viewer = path.join(process.cwd(), 'abraham_upgrade_proof');
 const glb = await readFile(path.join(viewer, 'assets/abraham_upgrade_bundle.glb'));
@@ -28,7 +29,7 @@ THREE.DefaultLoadingManager.setURLModifier(url => bundledDecoders.get(url.split(
 `;
 const main = (await readFile(path.join(viewer, 'main.js'), 'utf8')).replace(
   "const MODEL_URL = './assets/abraham_upgrade_bundle.glb';",
-  `${decoderBootstrap}\nconst MODEL_URL = 'data:model/gltf-binary;base64,${glb.toString('base64')}';`
+  () => `${decoderBootstrap}\nconst MODEL_URL = 'data:model/gltf-binary;base64,${glb.toString('base64')}';`
 );
 const result = await build({
   stdin: { contents: main, resolveDir: viewer, sourcefile: 'proof-main.js', loader: 'js' },
@@ -38,8 +39,12 @@ const script = result.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const css = await readFile(path.join(viewer, 'styles.css'), 'utf8');
 const html = (await readFile(path.join(viewer, 'index.html'), 'utf8'))
   .replace(/<script type="importmap">[\s\S]*?<\/script>/, '')
-  .replace('<link rel="stylesheet" href="./styles.css">', `<style>${css}</style>`)
-  .replace('<script type="module" src="./main.js"></script>', `<script>${script}</script>`);
+  .replace('<link rel="stylesheet" href="./styles.css">', () => `<style>${css}</style>`)
+  .replace('<script type="module" src="./main.js"></script>', () => `<script>${script}</script>`);
+const embeddedScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+if (!embeddedScript) throw new Error('HTML script was not embedded');
+const syntax = spawnSync(process.execPath, ['--check', '-'], { input: embeddedScript, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+if (syntax.status !== 0) throw new Error(`Packaged HTML JavaScript failed syntax verification: ${syntax.stderr.slice(-1500)}`);
 await mkdir('delivery', { recursive: true });
 await writeFile('delivery/Abraham-Modular-Proof.html', html);
 console.log(`Packaged ${glb.length} model bytes in ${Buffer.byteLength(html)} offline HTML bytes`);
