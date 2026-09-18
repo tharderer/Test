@@ -1,6 +1,8 @@
 name: Public Runner Diagnostic
 
 on:
+  push:
+    branches: [main]
   issues:
     types: [opened]
 
@@ -10,18 +12,20 @@ permissions:
 
 jobs:
   prove-public-runner:
-    if: >
-      github.actor == 'tharderer' &&
-      github.event.issue.user.login == 'tharderer' &&
-      github.event.issue.title == '[PUBLIC RUNNER TEST]'
     runs-on: ubuntu-latest
     steps:
       - name: Confirm runner allocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Public GitHub-hosted runner executed successfully."
+
+      - name: Comment on issue-triggered test
+        if: github.event_name == 'issues' && github.actor == 'tharderer' && github.event.issue.user.login == 'tharderer' && github.event.issue.title == '[PUBLIC RUNNER TEST]'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -euo pipefail
           gh issue comment "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
             --body "Public GitHub-hosted runner executed successfully."
