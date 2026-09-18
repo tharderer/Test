@@ -1,0 +1,60 @@
+name: RunPod Migration Introspection
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  introspect-migration:
+    if: >
+      github.event_name == 'issues' &&
+      github.actor == 'tharderer' &&
+      github.event.issue.user.login == 'tharderer' &&
+      github.event.issue.title == '[RUNPOD RECOVERY] INTROSPECT'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate recovery credential
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNPOD_API_KEY"
+
+      - name: Discover migration mutations
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          query='{ __schema { mutationType { fields { name args { name type { kind name ofType { kind name ofType { kind name } } } } } } } }'
+          payload="$(jq -n --arg q "$query" '{query:$q}')"
+          curl --fail --silent --show-error \
+            --request POST \
+            --url "https://api.runpod.io/graphql" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            --output response.json
+          err="$(jq -r '.errors[0].message // empty' response.json)"
+          if [[ -n "$err" ]]; then
+            echo "::error::GraphQL introspection error: $err"
+            exit 1
+          fi
+          matches="$(jq -c '[.data.__schema.mutationType.fields[] | select(.name|ascii_downcase|contains("migrat")) | {name,args}]' response.json)"
+          echo "$matches"
+          jq -e 'length > 0' <<<"$matches" >/dev/null
+
+      - name: Close successful introspection
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "RunPod migration mutation introspection completed."
