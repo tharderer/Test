@@ -1,0 +1,76 @@
+name: RunPod Zero GPU Recovery
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  recover-zero-gpu:
+    if: >
+      github.event_name == 'issues' &&
+      github.actor == 'tharderer' &&
+      github.event.issue.user.login == 'tharderer' &&
+      github.event.issue.title == '[RUNPOD RECOVERY] ZERO GPU'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark zero-GPU recovery started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "Public recovery runner started. Attempting zero-GPU Pod resume for local-volume access."
+
+      - name: Validate recovery credential
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNPOD_API_KEY"
+
+      - name: Resume Pod with zero GPUs
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="togka5pqf0efbh"
+          query='mutation Resume($input: PodResumeInput!) { podResume(input: $input) { id desiredStatus gpuCount machineId volumeInGb volumeMountPath networkVolumeId lastStatusChange } }'
+          payload="$(jq -n --arg q "$query" --arg pod "$POD_ID" '{query:$q,variables:{input:{podId:$pod,gpuCount:0}}}')"
+          http_code="$(
+            curl --silent --show-error \
+              --request POST \
+              --url "https://api.runpod.io/graphql" \
+              --header "Authorization: Bearer $RUNPOD_API_KEY" \
+              --header "Content-Type: application/json" \
+              --data "$payload" \
+              --output response.json \
+              --write-out "%{http_code}"
+          )"
+          if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
+            echo "::error::RunPod GraphQL returned HTTP $http_code"
+            exit 1
+          fi
+          err="$(jq -r '.errors[0].message // empty' response.json)"
+          if [[ -n "$err" ]]; then
+            echo "::error::RunPod zero-GPU resume error: $err"
+            exit 1
+          fi
+          jq -e '.data.podResume.id == "togka5pqf0efbh"' response.json >/dev/null
+          jq -c '{id:.data.podResume.id,desiredStatus:.data.podResume.desiredStatus,gpuCount:.data.podResume.gpuCount,machineId:.data.podResume.machineId,volumeInGb:.data.podResume.volumeInGb,volumeMountPath:.data.podResume.volumeMountPath,networkVolumeId:.data.podResume.networkVolumeId,lastStatusChange:.data.podResume.lastStatusChange}' response.json
+
+      - name: Close successful zero-GPU request
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "RunPod accepted zero-GPU recovery resume for the stopped Pod."
