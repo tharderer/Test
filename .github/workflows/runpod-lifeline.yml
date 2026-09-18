@@ -1,0 +1,65 @@
+name: RunPod Lifeline
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  start-runpod:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD RECOVERY] START')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark public recovery runner started
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "Public recovery runner started. Validating the RunPod credential and requesting Pod start."
+
+      - name: Validate recovery credential
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RUNPOD_API_KEY" ]]; then
+            echo "::error::Missing repository secret RUNPOD_API_KEY"
+            exit 2
+          fi
+
+      - name: Start RunPod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="togka5pqf0efbh"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://rest.runpod.io/v1/pods/$POD_ID/start" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY"
+          echo
+          echo "RunPod start request accepted for $POD_ID"
+
+      - name: Close successful issue-triggered request
+        if: success() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "RunPod start request was accepted by the RunPod API."
