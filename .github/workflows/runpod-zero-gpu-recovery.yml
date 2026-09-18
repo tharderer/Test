@@ -24,7 +24,7 @@ jobs:
         run: |
           gh issue comment "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
-            --body "Public recovery runner started. Attempting zero-GPU Pod resume for local-volume access."
+            --body "Public recovery runner started. Attempting explicit CPU/zero-GPU Pod resume for local-volume access."
 
       - name: Validate recovery credential
         env:
@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           POD_ID="togka5pqf0efbh"
           query='mutation Resume($input: PodResumeInput!) { podResume(input: $input) { id desiredStatus gpuCount machineId volumeInGb volumeMountPath networkVolumeId lastStatusChange } }'
-          payload="$(jq -n --arg q "$query" --arg pod "$POD_ID" '{query:$q,variables:{input:{podId:$pod,gpuCount:0}}}')"
+          payload="$(jq -n --arg q "$query" --arg pod "$POD_ID" '{query:$q,variables:{input:{podId:$pod,gpuCount:0,computeType:"CPU"}}}')"
           http_code="$(
             curl --silent --show-error \
               --request POST \
@@ -73,4 +73,4 @@ jobs:
         run: |
           gh issue close "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
-            --comment "RunPod accepted zero-GPU recovery resume for the stopped Pod."
+            --comment "RunPod accepted explicit CPU/zero-GPU recovery resume for the stopped Pod."
