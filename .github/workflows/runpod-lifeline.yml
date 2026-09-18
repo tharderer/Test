@@ -6,6 +6,7 @@ on:
     types: [opened]
 
 permissions:
+  actions: write
   contents: read
   issues: write
 
@@ -29,6 +30,15 @@ jobs:
             --repo "${{ github.repository }}" \
             --body "Public recovery runner started. Validating the RunPod credential and requesting Pod start."
 
+      - name: Purge exposed proof log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method DELETE \
+            "/repos/${{ github.repository }}/actions/runs/35402621890/logs" || true
+
       - name: Validate recovery credential
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -47,12 +57,15 @@ jobs:
         run: |
           set -euo pipefail
           POD_ID="togka5pqf0efbh"
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            --url "https://rest.runpod.io/v1/pods/$POD_ID/start" \
-            --header "Authorization: Bearer $RUNPOD_API_KEY"
-          echo
-          echo "RunPod start request accepted for $POD_ID"
+          http_code="$(
+            curl --fail --silent --show-error \
+              --request POST \
+              --url "https://rest.runpod.io/v1/pods/$POD_ID/start" \
+              --header "Authorization: Bearer $RUNPOD_API_KEY" \
+              --output /dev/null \
+              --write-out "%{http_code}"
+          )"
+          echo "RunPod start request accepted for $POD_ID (HTTP $http_code)"
 
       - name: Close successful issue-triggered request
         if: success() && github.event_name == 'issues'
