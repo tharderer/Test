@@ -228,6 +228,64 @@ jobs:
               "any_live_matches_backup": any(x["matches_backup"] for x in live_candidates),
               "candidate_dir_basenames": sorted(set(x["path_basename"] for x in live_candidates)),
           }, sort_keys=True))
+
+          import shutil, re
+          agent = "/workspace/factory-runtime/rdc-agent"
+          dist = os.path.join(agent, "node_modules", "@wonderwhy-er", "desktop-commander", "dist")
+          runtime_diag = {
+              "node_path_present": bool(shutil.which("node")),
+              "npm_path_present": bool(shutil.which("npm")),
+              "npx_path_present": bool(shutil.which("npx")),
+              "agent_dir": os.path.isdir(agent),
+              "agent_package_json": os.path.isfile(os.path.join(agent, "package.json")),
+              "agent_node_modules": os.path.isdir(os.path.join(agent, "node_modules")),
+              "commander_dist_dir": os.path.isdir(dist),
+              "commander_dist_js_count": len([x for x in os.listdir(dist) if x.endswith(".js")]) if os.path.isdir(dist) else 0,
+          }
+          print("SAFE_RUNTIME_DIAG " + json.dumps(runtime_diag, sort_keys=True))
+
+          log_files = []
+          for base in ["/workspace", "/tmp"]:
+              for root, dirs, files in os.walk(base):
+                  depth = root[len(base):].count(os.sep)
+                  if depth > 3:
+                      dirs[:] = []
+                      continue
+                  dirs[:] = [d for d in dirs if d not in {"node_modules", "UnrealEngine-5.8.2", ".git"}]
+                  for fn in files:
+                      low = fn.lower()
+                      if any(k in low for k in ["rdc", "commander", "watchdog"]) and (low.endswith(".log") or low.endswith(".txt") or low.endswith(".out")):
+                          path = os.path.join(root, fn)
+                          try:
+                              size = os.path.getsize(path)
+                          except Exception:
+                              size = -1
+                          log_files.append((path, size))
+          print("SAFE_LOG_FILES " + json.dumps([
+              {"path": p, "size": s} for p, s in sorted(log_files)
+          ], sort_keys=True))
+
+          categories = {
+              "node_not_found": re.compile(r"(node|npm|npx): (command )?not found", re.I),
+              "module_not_found": re.compile(r"(MODULE_NOT_FOUND|Cannot find module)", re.I),
+              "enoent": re.compile(r"ENOENT|No such file or directory", re.I),
+              "permission": re.compile(r"EACCES|Permission denied", re.I),
+              "unauthorized": re.compile(r"unauthori[sz]ed|HTTP[^\n]*(401|403)|\b(401|403)\b", re.I),
+              "npm_error": re.compile(r"npm ERR", re.I),
+              "syntax_error": re.compile(r"SyntaxError", re.I),
+          }
+          classified = []
+          for path, size in log_files:
+              try:
+                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                      data = f.read()[-200000:]
+                  classified.append({
+                      "path": path,
+                      **{name: bool(rx.search(data)) for name, rx in categories.items()}
+                  })
+              except Exception:
+                  pass
+          print("SAFE_LOG_CLASSIFICATION " + json.dumps(classified, sort_keys=True))
           '''
 
           msg_id = str(uuid.uuid4())
