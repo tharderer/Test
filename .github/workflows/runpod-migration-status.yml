@@ -147,6 +147,13 @@ jobs:
           else
             echo "BOOTSTRAP_ERROR no-such-file = absent"
           fi
+          for p in "rdc-entrypoint.sh" "pre_start_rdc.sh" "pre_start.sh" "rdc-watchdog.sh" "rdc-auth-sync.sh" "runpod-supervisor.sh"; do
+            if grep -Ei "(No such file or directory.*$p|$p.*No such file or directory)" /tmp/podlogs.txt >/dev/null; then
+              echo "MISSING_PATH $p = yes"
+            else
+              echo "MISSING_PATH $p = no"
+            fi
+          done
           echo "LOG_BYTES $(wc -c < /tmp/podlogs.txt)"
 
       - name: Close status request
