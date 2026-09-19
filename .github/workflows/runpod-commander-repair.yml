@@ -244,6 +244,23 @@ jobs:
           }
           print("SAFE_RUNTIME_DIAG " + json.dumps(runtime_diag, sort_keys=True))
 
+          import shutil as _shutil
+          used_before = _shutil.disk_usage("/workspace").used
+          agent_entries_before = len(os.listdir(agent)) if os.path.isdir(agent) else 0
+          time.sleep(8)
+          used_after = _shutil.disk_usage("/workspace").used
+          agent_entries_after = len(os.listdir(agent)) if os.path.isdir(agent) else 0
+          print("SAFE_MIGRATION_PROGRESS " + json.dumps({
+              "workspace_used_gib_before": round(used_before / (1024**3), 3),
+              "workspace_used_gib_after": round(used_after / (1024**3), 3),
+              "workspace_delta_mib": round((used_after - used_before) / (1024**2), 3),
+              "rdc_agent_entries_before": agent_entries_before,
+              "rdc_agent_entries_after": agent_entries_after,
+              "unreal_dir_present": os.path.isdir("/workspace/factory-runtime/UnrealEngine-5.8.2"),
+              "comfy_dir_present": os.path.isdir("/workspace/factory-runtime/ComfyUI"),
+              "hunyuandir_present": os.path.isdir("/workspace/factory-runtime/Hunyuan3D-2"),
+          }, sort_keys=True))
+
           log_files = []
           for base in ["/workspace", "/tmp"]:
               for root, dirs, files in os.walk(base):
