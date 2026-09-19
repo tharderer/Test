@@ -68,6 +68,31 @@ try:
 except Exception as exc:
     pid1 = "ERROR:" + type(exc).__name__
 
+def meta(path):
+    p = pathlib.Path(path)
+    try:
+        return {
+            "exists": p.exists(),
+            "is_symlink": p.is_symlink(),
+            "executable": os.path.isfile(path) and os.access(path, os.X_OK),
+            "link_target": os.readlink(path) if p.is_symlink() else None,
+        }
+    except Exception as exc:
+        return {"error": type(exc).__name__}
+
+def cmd_info(cmd):
+    try:
+        path = subprocess.check_output(["bash","-lc", "command -v " + cmd], text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        path = ""
+    version = ""
+    if path:
+        try:
+            version = subprocess.check_output([path, "--version"], text=True, stderr=subprocess.STDOUT, timeout=10).strip().splitlines()[0]
+        except Exception as exc:
+            version = "ERROR:" + type(exc).__name__
+    return {"path": path, "version": version}
+
 diag = {
     "hostname": os.uname().nodename,
     "pid1_cmd": pid1,
@@ -86,6 +111,14 @@ diag = {
         1 for line in ps.splitlines()
         if ("desktop-commander" in line.lower() or "/rdc-agent/" in line.lower())
     ),
+    "persistent_node": meta("/workspace/factory-runtime/node/bin/node"),
+    "persistent_npm": meta("/workspace/factory-runtime/node/bin/npm"),
+    "persistent_npx": meta("/workspace/factory-runtime/node/bin/npx"),
+    "rdc_local_bin": meta("/workspace/factory-runtime/rdc-agent/node_modules/.bin/desktop-commander"),
+    "rdc_package_entry": meta("/workspace/factory-runtime/rdc-agent/node_modules/@wonderwhy-er/desktop-commander/dist/index.js"),
+    "system_node": cmd_info("node"),
+    "system_npm": cmd_info("npm"),
+    "system_npx": cmd_info("npx"),
 }
 print("__RDC_DIAG__" + json.dumps(diag, sort_keys=True), flush=True)
 '''
