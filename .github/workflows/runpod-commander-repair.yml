@@ -303,6 +303,30 @@ jobs:
               except Exception:
                   pass
           print("SAFE_LOG_CLASSIFICATION " + json.dumps(classified, sort_keys=True))
+
+          def sanitize_line(line):
+              if re.search(r"(password|token|secret|authorization|bearer|api[_ -]?key)", line, re.I):
+                  return "<redacted-sensitive-line>"
+              line = re.sub(r"https?://\\S+", "<url>", line)
+              line = re.sub(r"(?<![A-Za-z0-9])/[A-Za-z0-9_.@~+\\/-]+", "<path>", line)
+              line = re.sub(r"\\b[0-9a-fA-F]{16,}\\b", "<hex>", line)
+              line = re.sub(r"\\b[A-Za-z0-9_-]{24,}\\b", "<token>", line)
+              line = re.sub(r"\\b\\d+\\b", "<num>", line)
+              return line[:300]
+
+          for path in ["/workspace/rdc-watchdog.log", "/workspace/logs/rdc-agent.log", "/workspace/pre_start_rdc.debug.log"]:
+              if not os.path.isfile(path):
+                  continue
+              try:
+                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                      tail = [x.rstrip() for x in f.readlines()[-20:] if x.strip()]
+                  safe_tail = [sanitize_line(x) for x in tail[-12:]]
+                  print("SAFE_REDACTED_TAIL " + json.dumps({
+                      "file": path,
+                      "lines": safe_tail,
+                  }, sort_keys=True))
+              except Exception:
+                  pass
           '''
 
           msg_id = str(uuid.uuid4())
