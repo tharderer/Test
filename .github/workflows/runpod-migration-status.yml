@@ -102,6 +102,67 @@ jobs:
           }' /tmp/pod.json
 
 
+      - name: Verify migrated workspace through Jupyter
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          BASE="https://$POD_ID-8888.proxy.runpod.net"
+
+          curl --fail --silent --show-error \
+            --url "https://rest.runpod.io/v1/pods/$POD_ID" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/pod-for-jupyter.json
+
+          JUPYTER_PASSWORD="$(jq -r '.env.JUPYTER_PASSWORD // empty' /tmp/pod-for-jupyter.json)"
+          if [[ -z "$JUPYTER_PASSWORD" ]]; then
+            echo "::error::Replacement Pod has no JUPYTER_PASSWORD environment value"
+            exit 2
+          fi
+
+          curl --silent --show-error --location \
+            --cookie-jar /tmp/jupyter.cookies \
+            "$BASE/login" \
+            --output /tmp/jupyter-login.html
+
+          XSRF="$(awk '$6 == "_xsrf" {print $7}' /tmp/jupyter.cookies | tail -1)"
+          if [[ -z "$XSRF" ]]; then
+            echo "::error::Could not obtain Jupyter XSRF cookie"
+            exit 3
+          fi
+
+          curl --silent --show-error \
+            --cookie /tmp/jupyter.cookies \
+            --cookie-jar /tmp/jupyter.cookies \
+            --request POST \
+            "$BASE/login?next=%2Flab" \
+            --data-urlencode "_xsrf=$XSRF" \
+            --data-urlencode "password=$JUPYTER_PASSWORD" \
+            --output /tmp/jupyter-login-post.html
+
+          api_code="$(
+            curl --silent --show-error \
+              --cookie /tmp/jupyter.cookies \
+              --output /tmp/jupyter-root.json \
+              --write-out "%{http_code}" \
+              "$BASE/api/contents?content=1"
+          )"
+          echo "JUPYTER_CONTENTS_HTTP $api_code"
+          if [[ "$api_code" != "200" ]]; then
+            echo "::error::Authenticated Jupyter contents request failed"
+            exit 4
+          fi
+
+          for p in "rdc-entrypoint.sh" "pre_start_rdc.sh" "rdc-watchdog.sh" "rdc-auth-sync.sh" "runpod-supervisor.sh" "comfy-watchdog.sh" "factory-runtime" "bible-world-game" ".rdc-auth-backup"; do
+            if jq -e --arg p "$p" '.content[]? | select(.name == $p)' /tmp/jupyter-root.json >/dev/null; then
+              echo "WORKSPACE_PATH $p = present"
+            else
+              echo "WORKSPACE_PATH $p = absent"
+            fi
+          done
+
       - name: Compare original and replacement API schema
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
