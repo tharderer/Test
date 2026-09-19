@@ -79,6 +79,15 @@ jobs:
           print("Jupyter API:", "PASS" if r.status_code == 200 else f"FAIL HTTP {r.status_code}")
           r.raise_for_status()
 
+          root = s.get(base + "/api/contents/?content=1", timeout=30)
+          print("Jupyter contents root HTTP:", root.status_code)
+          root.raise_for_status()
+          rootj = root.json()
+          print("Jupyter contents root path:", repr(rootj.get("path")))
+          names = {item.get("name") for item in (rootj.get("content") or [])}
+          print("Jupyter root entry count:", len(names))
+          print("Jupyter root has workspace dir:", "YES" if "workspace" in names else "NO")
+
           checks = [
               "rdc-entrypoint.sh",
               "pre_start_rdc.sh",
@@ -91,9 +100,11 @@ jobs:
               "factory-runtime/UnrealEngine-5.8.2",
               "bible-world-game",
           ]
-          for path in checks:
-              rr = s.get(base + "/api/contents/" + path + "?content=0", timeout=30)
-              print(f"workspace:{path}:", "PRESENT" if rr.status_code == 200 else f"NOT_VISIBLE HTTP {rr.status_code}")
+          for prefix in ("", "workspace/"):
+              for path in checks:
+                  rr = s.get(base + "/api/contents/" + prefix + path + "?content=0", timeout=30)
+                  if rr.status_code == 200:
+                      print(f"contents:{prefix}{path}: PRESENT")
           PY
 
       - name: Close issue
