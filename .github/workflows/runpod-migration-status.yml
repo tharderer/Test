@@ -117,6 +117,38 @@ jobs:
             jq -r 'keys[]' "/tmp/$POD_ID.json" | sort
           done
 
+      - name: Check bootstrap signatures in replacement logs
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          set +e
+          curl --silent --show-error --max-time 8 \
+            --url "https://api.runpod.io/v2/pods/$POD_ID/logs" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/podlogs.txt
+          rc=$?
+          set -e
+          if [[ $rc -ne 0 && $rc -ne 28 ]]; then
+            echo "::warning::Pod log stream request failed with curl code $rc"
+          fi
+          touch /tmp/podlogs.txt
+          for p in "rdc-entrypoint.sh" "pre_start_rdc.sh" "rdc-watchdog" "rdc-auth-sync" "runpod-supervisor" "comfy-watchdog" "Desktop Commander"; do
+            if grep -Fqi "$p" /tmp/podlogs.txt; then
+              echo "BOOTSTRAP_SIGNATURE $p = present"
+            else
+              echo "BOOTSTRAP_SIGNATURE $p = absent"
+            fi
+          done
+          if grep -Fqi "No such file or directory" /tmp/podlogs.txt; then
+            echo "BOOTSTRAP_ERROR no-such-file = present"
+          else
+            echo "BOOTSTRAP_ERROR no-such-file = absent"
+          fi
+          echo "LOG_BYTES $(wc -c < /tmp/podlogs.txt)"
+
       - name: Close status request
         if: success() && github.event_name == 'issues'
         env:
