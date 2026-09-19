@@ -1,0 +1,65 @@
+name: RunPod Migration Discovery
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  discover:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD MIGRATION] DISCOVER')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate credential
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$RUNPOD_API_KEY" ]] || { echo "::error::Missing RUNPOD_API_KEY"; exit 2; }
+
+      - name: List safe Pod state
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --url "https://api.runpod.io/v2/pods" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/pods.json
+
+          jq '{
+            pods: [
+              .pods[] | {
+                id,
+                name,
+                status,
+                desiredStatus,
+                gpuCount,
+                machineId,
+                volumeInGb,
+                volumeMountPath,
+                createdAt
+              }
+            ]
+          }' /tmp/pods.json
+
+      - name: Close issue
+        if: success() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "Safe RunPod migration discovery completed."
