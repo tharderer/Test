@@ -162,6 +162,72 @@ jobs:
           }
           print("SAFE_LAUNCHED " + json.dumps(launched))
           print("SAFE_AFTER " + json.dumps(after, sort_keys=True))
+
+          node_total = 0
+          rdc_cwd_nodes = 0
+          rdc_cmd_nodes = 0
+          for name in os.listdir("/proc"):
+              if not name.isdigit():
+                  continue
+              pid = name
+              try:
+                  with open(f"/proc/{pid}/comm", "r", encoding="utf-8", errors="ignore") as f:
+                      comm = f.read().strip()
+                  if comm != "node":
+                      continue
+                  node_total += 1
+                  try:
+                      cwd = os.readlink(f"/proc/{pid}/cwd")
+                  except Exception:
+                      cwd = ""
+                  try:
+                      with open(f"/proc/{pid}/cmdline", "rb") as f:
+                          cmd = f.read().replace(b"\x00", b" ").decode("utf-8", "ignore")
+                  except Exception:
+                      cmd = ""
+                  if "rdc-agent" in cwd:
+                      rdc_cwd_nodes += 1
+                  if any(x in cmd.lower() for x in ["desktop-commander", "rdc-agent", "@wonderwhy-er"]):
+                      rdc_cmd_nodes += 1
+              except Exception:
+                  continue
+          print("SAFE_PROCESS_DIAG " + json.dumps({
+              "node_total": node_total,
+              "rdc_cwd_nodes": rdc_cwd_nodes,
+              "rdc_cmd_nodes": rdc_cmd_nodes,
+          }, sort_keys=True))
+
+          import hashlib
+          backup = "/workspace/.rdc-auth-backup/device.json"
+          def digest(path):
+              try:
+                  h = hashlib.sha256()
+                  with open(path, "rb") as f:
+                      for chunk in iter(lambda: f.read(65536), b""):
+                          h.update(chunk)
+                  return h.hexdigest()
+              except Exception:
+                  return None
+
+          backup_hash = digest(backup)
+          live_candidates = []
+          for root, dirs, files in os.walk("/root"):
+              rel_depth = root[len("/root"):].count(os.sep)
+              if rel_depth > 4:
+                  dirs[:] = []
+                  continue
+              if "device.json" in files and any(x in root.lower() for x in ["desktop", "commander", "rdc"]):
+                  path = os.path.join(root, "device.json")
+                  live_candidates.append({
+                      "path_basename": os.path.basename(root),
+                      "matches_backup": bool(backup_hash and digest(path) == backup_hash),
+                  })
+          print("SAFE_AUTH_DIAG " + json.dumps({
+              "backup_present": bool(backup_hash),
+              "live_candidate_count": len(live_candidates),
+              "any_live_matches_backup": any(x["matches_backup"] for x in live_candidates),
+              "candidate_dir_basenames": sorted(set(x["path_basename"] for x in live_candidates)),
+          }, sort_keys=True))
           '''
 
           msg_id = str(uuid.uuid4())
