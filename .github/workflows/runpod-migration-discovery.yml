@@ -44,15 +44,40 @@ jobs:
                 id,
                 name,
                 status,
-                desiredStatus,
-                gpuCount,
-                machineId,
-                volumeInGb,
-                volumeMountPath,
                 createdAt
               }
             ]
           }' /tmp/pods.json
+
+      - name: Inspect migrated Pod safe configuration
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pod_id in "togka5pqf0efbh" "f72o8q67mc0lr7"; do
+            curl --fail --silent --show-error \
+              --url "https://rest.runpod.io/v1/pods/$pod_id" \
+              --header "Authorization: Bearer $RUNPOD_API_KEY" \
+              --output "/tmp/$pod_id.json"
+            jq '{
+              id,
+              name,
+              desiredStatus,
+              imageName,
+              containerDiskInGb,
+              volumeInGb,
+              volumeMountPath,
+              dockerArgs,
+              containerStartCommand,
+              ports,
+              portMappings,
+              publicIp,
+              machineId,
+              lastStatusChange,
+              costPerHr
+            }' "/tmp/$pod_id.json"
+          done
 
       - name: Close issue
         if: success() && github.event_name == 'issues'
