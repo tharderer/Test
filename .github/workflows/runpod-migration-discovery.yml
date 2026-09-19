@@ -79,19 +79,21 @@ jobs:
             }' "/tmp/$pod_id.json"
           done
 
-      - name: Show safe response keys only
+      - name: Compare safe GraphQL startup configuration
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
           for pod_id in "togka5pqf0efbh" "f72o8q67mc0lr7"; do
+            query='query { pod(input: { podId: "'"$pod_id"'" }) { id name desiredStatus dockerArgs imageName volumeInGb volumeMountPath locked } }'
             curl --fail --silent --show-error \
-              --url "https://rest.runpod.io/v1/pods/$pod_id" \
-              --header "Authorization: Bearer $RUNPOD_API_KEY" \
-              --output "/tmp/keys-$pod_id.json"
-            echo "Top-level keys for $pod_id:"
-            jq -r 'keys[]' "/tmp/keys-$pod_id.json"
+              --request POST \
+              --header 'content-type: application/json' \
+              --url "https://api.runpod.io/graphql?api_key=$RUNPOD_API_KEY" \
+              --data "$(jq -cn --arg q "$query" '{query:$q}')" \
+              --output "/tmp/gql-$pod_id.json"
+            jq '{pod: .data.pod, errors: [.errors[]? | {message}]}' "/tmp/gql-$pod_id.json"
           done
 
       - name: Close issue
