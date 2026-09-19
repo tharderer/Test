@@ -155,8 +155,25 @@ jobs:
             exit 4
           fi
 
+          echo "JUPYTER_ROOT_API_PATH $(jq -r '.path // "<unknown>"' /tmp/jupyter-root.json)"
+          if jq -e '.content[]? | select(.name == "workspace" and .type == "directory")' /tmp/jupyter-root.json >/dev/null; then
+            echo "JUPYTER_ROOT_HAS_WORKSPACE yes"
+            workspace_code="$(
+              curl --silent --show-error \
+                --cookie /tmp/jupyter.cookies \
+                --output /tmp/jupyter-workspace.json \
+                --write-out "%{http_code}" \
+                "$BASE/api/contents/workspace?content=1"
+            )"
+            echo "JUPYTER_WORKSPACE_HTTP $workspace_code"
+            TARGET_JSON=/tmp/jupyter-workspace.json
+          else
+            echo "JUPYTER_ROOT_HAS_WORKSPACE no"
+            TARGET_JSON=/tmp/jupyter-root.json
+          fi
+
           for p in "rdc-entrypoint.sh" "pre_start_rdc.sh" "rdc-watchdog.sh" "rdc-auth-sync.sh" "runpod-supervisor.sh" "comfy-watchdog.sh" "factory-runtime" "bible-world-game" ".rdc-auth-backup"; do
-            if jq -e --arg p "$p" '.content[]? | select(.name == $p)' /tmp/jupyter-root.json >/dev/null; then
+            if jq -e --arg p "$p" '.content[]? | select(.name == $p)' "$TARGET_JSON" >/dev/null; then
               echo "WORKSPACE_PATH $p = present"
             else
               echo "WORKSPACE_PATH $p = absent"
