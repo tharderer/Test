@@ -50,6 +50,29 @@ jobs:
             exit 2
           fi
 
+      - name: Inspect safe Pod state
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="togka5pqf0efbh"
+          curl --fail --silent --show-error \
+            --url "https://rest.runpod.io/v1/pods/$POD_ID" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/runpod-pod.json
+          jq '{
+            id,
+            name,
+            desiredStatus,
+            gpuCount,
+            machineId,
+            lastStatusChange,
+            volumeInGb,
+            volumeMountPath,
+            costPerHr
+          }' /tmp/runpod-pod.json
+
       - name: Start RunPod
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -58,14 +81,30 @@ jobs:
           set -euo pipefail
           POD_ID="togka5pqf0efbh"
           http_code="$(
-            curl --fail --silent --show-error \
+            curl --silent --show-error \
               --request POST \
               --url "https://rest.runpod.io/v1/pods/$POD_ID/start" \
               --header "Authorization: Bearer $RUNPOD_API_KEY" \
-              --output /dev/null \
+              --output /tmp/runpod-start.json \
               --write-out "%{http_code}"
           )"
-          echo "RunPod start request accepted for $POD_ID (HTTP $http_code)"
+          if [[ "$http_code" =~ ^2 ]]; then
+            echo "RunPod start request accepted for $POD_ID (HTTP $http_code)"
+          else
+            echo "::error::RunPod start request failed for $POD_ID (HTTP $http_code)"
+            if jq -e . /tmp/runpod-start.json >/dev/null 2>&1; then
+              jq 'if type == "object" then {
+                error: .error,
+                message: .message,
+                status: .status,
+                statusCode: .statusCode,
+                code: .code
+              } else {responseType: type} end' /tmp/runpod-start.json
+            else
+              echo "RunPod returned a non-JSON error body; body suppressed for security."
+            fi
+            exit 22
+          fi
 
       - name: Close successful issue-triggered request
         if: success() && github.event_name == 'issues'
