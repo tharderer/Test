@@ -1,0 +1,68 @@
+name: RunPod Migration Restart
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  restart-migrated-pod:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD MIGRATION] RESTART')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate target and credential
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$RUNPOD_API_KEY" ]] || { echo "::error::Missing RUNPOD_API_KEY"; exit 2; }
+          POD_ID="f72o8q67mc0lr7"
+          curl --fail --silent --show-error \
+            --url "https://rest.runpod.io/v1/pods/$POD_ID" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/pod.json
+          jq '{id,name,desiredStatus,gpuCount,machineId,volumeInGb,volumeMountPath}' /tmp/pod.json
+          jq -e '.id == "f72o8q67mc0lr7" and .desiredStatus == "RUNNING" and .volumeInGb == 300 and .volumeMountPath == "/workspace"' /tmp/pod.json >/dev/null
+
+      - name: Restart migrated Pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          http_code="$(
+            curl --silent --show-error \
+              --request POST \
+              --url "https://api.runpod.io/v2/pods/$POD_ID/action" \
+              --header "Authorization: Bearer $RUNPOD_API_KEY" \
+              --header "Content-Type: application/json" \
+              --data '{"action":"restart"}' \
+              --output /dev/null \
+              --write-out "%{http_code}"
+          )"
+          if [[ ! "$http_code" =~ ^2 ]]; then
+            echo "::error::RunPod restart request failed (HTTP $http_code)"
+            exit 22
+          fi
+          echo "RunPod restart request accepted for $POD_ID (HTTP $http_code)"
+
+      - name: Close restart request
+        if: success() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "Restart request for migrated Pod f72o8q67mc0lr7 was accepted."
