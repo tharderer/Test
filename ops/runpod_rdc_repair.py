@@ -122,7 +122,7 @@ curl -fsSL "https://nodejs.org/dist/latest-v22.x/$tarname" -o "$TMP_ROOT/$tarnam
 )
 
 echo "Installing persistent Node runtime..."
-tar -xJf "$TMP_ROOT/$tarname" -C "$TMP_ROOT"
+tar --no-same-owner -xJf "$TMP_ROOT/$tarname" -C "$TMP_ROOT"
 extracted="$TMP_ROOT/${tarname%.tar.xz}"
 rm -rf "${NODE_ROOT}.new"
 mv "$extracted" "${NODE_ROOT}.new"
