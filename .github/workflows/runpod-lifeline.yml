@@ -82,7 +82,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          POD_ID="togka5pqf0efbh"
+          POD_ID="f72o8q67mc0lr7"
           curl --fail --silent --show-error \
             --url "https://rest.runpod.io/v1/pods/$POD_ID" \
             --header "Authorization: Bearer $RUNPOD_API_KEY" \
@@ -107,7 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          POD_ID="togka5pqf0efbh"
+          POD_ID="f72o8q67mc0lr7"
 
           current_status="$(jq -r '.desiredStatus // empty' /tmp/runpod-pod.json)"
           if [[ "$current_status" == "RUNNING" ]]; then
@@ -184,5 +184,5 @@ jobs:
           for issue_number in "${issues[@]}"; do
             gh issue close "$issue_number" \
               --repo "${{ github.repository }}" \
-              --comment "RunPod recovery completed: Pod togka5pqf0efbh is running or its start request was accepted."
+              --comment "RunPod recovery completed: Pod f72o8q67mc0lr7 is running or its start request was accepted."
           done
