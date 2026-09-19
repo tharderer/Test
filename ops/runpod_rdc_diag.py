@@ -136,9 +136,9 @@ print("__RDC_DIAG__" + json.dumps(diag, sort_keys=True), flush=True)
             buf += msg[1]
             if "__RDC_DIAG__" in buf:
                 tail = buf.split("__RDC_DIAG__", 1)[1]
-                match = re.search(r"(\{.*?\})", tail, re.S)
-                if match:
-                    diag = json.loads(match.group(1))
+                first_line = tail.splitlines()[0].strip()
+                if first_line.startswith("{"):
+                    diag = json.loads(first_line)
                     break
     ws.close()
 
