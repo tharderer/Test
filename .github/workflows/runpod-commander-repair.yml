@@ -1,0 +1,229 @@
+name: RunPod Commander Repair
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  repair-commander:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD MIGRATION] REPAIR COMMANDER')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to migrated Jupyter
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$RUNPOD_API_KEY" ]] || { echo "::error::Missing RUNPOD_API_KEY"; exit 2; }
+
+          POD_ID="f72o8q67mc0lr7"
+          BASE="https://$POD_ID-8888.proxy.runpod.net"
+
+          curl --fail --silent --show-error \
+            --url "https://rest.runpod.io/v1/pods/$POD_ID" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/pod.json
+
+          JUPYTER_PASSWORD="$(jq -r '.env.JUPYTER_PASSWORD // empty' /tmp/pod.json)"
+          [[ -n "$JUPYTER_PASSWORD" ]] || { echo "::error::Missing Jupyter password in Pod environment"; exit 3; }
+
+          curl --silent --show-error --location \
+            --cookie-jar /tmp/jupyter.cookies \
+            "$BASE/login" \
+            --output /tmp/login.html
+
+          XSRF="$(awk '$6 == "_xsrf" {print $7}' /tmp/jupyter.cookies | tail -1)"
+          [[ -n "$XSRF" ]] || { echo "::error::Could not obtain Jupyter XSRF cookie"; exit 4; }
+
+          curl --silent --show-error \
+            --cookie /tmp/jupyter.cookies \
+            --cookie-jar /tmp/jupyter.cookies \
+            --request POST \
+            "$BASE/login?next=%2Flab" \
+            --data-urlencode "_xsrf=$XSRF" \
+            --data-urlencode "password=$JUPYTER_PASSWORD" \
+            --output /tmp/login-post.html
+
+          code="$(
+            curl --silent --show-error \
+              --cookie /tmp/jupyter.cookies \
+              --output /tmp/root.json \
+              --write-out "%{http_code}" \
+              "$BASE/api/contents?content=0"
+          )"
+          [[ "$code" == "200" ]] || { echo "::error::Jupyter authentication failed"; exit 5; }
+
+          kernel_code="$(
+            curl --silent --show-error \
+              --cookie /tmp/jupyter.cookies \
+              --cookie-jar /tmp/jupyter.cookies \
+              --header "X-XSRFToken: $XSRF" \
+              --header "Content-Type: application/json" \
+              --request POST \
+              --data '{"name":"python3"}' \
+              --output /tmp/kernel.json \
+              --write-out "%{http_code}" \
+              "$BASE/api/kernels"
+          )"
+          [[ "$kernel_code" =~ ^2 ]] || { echo "::error::Could not create Jupyter kernel (HTTP $kernel_code)"; exit 6; }
+
+          KERNEL_ID="$(jq -r '.id // empty' /tmp/kernel.json)"
+          [[ -n "$KERNEL_ID" ]] || { echo "::error::Jupyter kernel ID missing"; exit 7; }
+
+          echo "JUPYTER_BASE=$BASE" >> "$GITHUB_ENV"
+          echo "JUPYTER_KERNEL_ID=$KERNEL_ID" >> "$GITHUB_ENV"
+          echo "JUPYTER_XSRF=$XSRF" >> "$GITHUB_ENV"
+          echo "Authenticated Jupyter recovery channel established."
+
+      - name: Inspect and conditionally launch Commander recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet websocket-client
+          cat >/tmp/jupyter_repair.py <<'PY'
+          import os, json, uuid, datetime, time
+          import websocket
+
+          base = os.environ["JUPYTER_BASE"]
+          kid = os.environ["JUPYTER_KERNEL_ID"]
+
+          cookies = []
+          with open("/tmp/jupyter.cookies", "r", encoding="utf-8") as f:
+              for raw in f:
+                  line = raw.strip()
+                  if not line:
+                      continue
+                  if line.startswith("#HttpOnly_"):
+                      line = line[len("#HttpOnly_"):]
+                  elif line.startswith("#"):
+                      continue
+                  parts = line.split("\t")
+                  if len(parts) >= 7:
+                      cookies.append(f"{parts[5]}={parts[6]}")
+          cookie_header = "; ".join(cookies)
+
+          session_id = str(uuid.uuid4())
+          ws_url = base.replace("https://", "wss://", 1) + f"/api/kernels/{kid}/channels?session_id={session_id}"
+          ws = websocket.create_connection(
+              ws_url,
+              cookie=cookie_header,
+              origin=base,
+              timeout=20,
+          )
+
+          code = r'''
+          import os, subprocess, json, time
+
+          def running(pattern):
+              return subprocess.run(
+                  ["pgrep", "-f", pattern],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL
+              ).returncode == 0
+
+          before = {
+              "entrypoint_file": os.path.isfile("/workspace/rdc-entrypoint.sh"),
+              "pre_start_file": os.path.isfile("/workspace/pre_start_rdc.sh"),
+              "auth_backup_dir": os.path.isdir("/workspace/.rdc-auth-backup"),
+              "auth_device_file": os.path.isfile("/workspace/.rdc-auth-backup/device.json"),
+              "rdc_process": running("desktop-commander"),
+              "rdc_watchdog_process": running("rdc-watchdog"),
+              "supervisor_process": running("runpod-supervisor"),
+          }
+          print("SAFE_BEFORE " + json.dumps(before, sort_keys=True))
+
+          launched = False
+          if before["pre_start_file"] and before["auth_device_file"] and not before["rdc_process"]:
+              subprocess.Popen(
+                  ["bash", "/workspace/pre_start_rdc.sh"],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  stdin=subprocess.DEVNULL,
+                  start_new_session=True,
+              )
+              launched = True
+              time.sleep(6)
+
+          after = {
+              "rdc_process": running("desktop-commander"),
+              "rdc_watchdog_process": running("rdc-watchdog"),
+              "supervisor_process": running("runpod-supervisor"),
+          }
+          print("SAFE_LAUNCHED " + json.dumps(launched))
+          print("SAFE_AFTER " + json.dumps(after, sort_keys=True))
+          '''
+
+          msg_id = str(uuid.uuid4())
+          msg = {
+              "header": {
+                  "msg_id": msg_id,
+                  "username": "github-actions",
+                  "session": session_id,
+                  "date": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  "msg_type": "execute_request",
+                  "version": "5.3",
+              },
+              "parent_header": {},
+              "metadata": {},
+              "content": {
+                  "code": code,
+                  "silent": False,
+                  "store_history": False,
+                  "user_expressions": {},
+                  "allow_stdin": False,
+                  "stop_on_error": True,
+              },
+              "buffers": [],
+              "channel": "shell",
+          }
+          ws.send(json.dumps(msg))
+
+          deadline = time.time() + 40
+          saw_idle = False
+          while time.time() < deadline and not saw_idle:
+              raw = ws.recv()
+              data = json.loads(raw)
+              parent = data.get("parent_header", {})
+              if parent.get("msg_id") != msg_id:
+                  continue
+              mtype = data.get("msg_type") or data.get("header", {}).get("msg_type")
+              content = data.get("content", {})
+              if mtype == "stream":
+                  text = content.get("text", "")
+                  for line in text.splitlines():
+                      if line.startswith("SAFE_"):
+                          print(line)
+              elif mtype == "error":
+                  print("SAFE_EXECUTION_ERROR " + json.dumps({
+                      "ename": content.get("ename"),
+                      "evalue": content.get("evalue"),
+                  }))
+              elif mtype == "status" and content.get("execution_state") == "idle":
+                  saw_idle = True
+
+          ws.close()
+          if not saw_idle:
+              raise SystemExit("Jupyter repair command did not reach idle state")
+          PY
+          python /tmp/jupyter_repair.py
+
+      - name: Close successful repair request
+        if: success() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "Commander repair diagnostic completed on migrated Pod f72o8q67mc0lr7."
