@@ -48,6 +48,7 @@ jobs:
             podlist
             | map(select(
                 (.id == "togka5pqf0efbh") or
+                (.id == "f72o8q67mc0lr7") or
                 ((.name // "") | ascii_downcase | contains("abraham"))
               ))
             | map({
@@ -65,6 +66,36 @@ jobs:
                 costPerHr
               })
           ' /tmp/pods.json
+
+      - name: Inspect replacement safe runtime metadata
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          curl --fail --silent --show-error \
+            --url "https://rest.runpod.io/v1/pods/$POD_ID" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/pod.json
+          jq '{
+            id,
+            name,
+            desiredStatus,
+            gpuCount,
+            machineId,
+            memoryInGb,
+            vcpuCount,
+            volumeInGb,
+            volumeMountPath,
+            containerDiskInGb,
+            publicIp,
+            portMappings,
+            createdAt,
+            lastStartedAt,
+            lastStatusChange,
+            costPerHr
+          }' /tmp/pod.json
 
       - name: Close status request
         if: success() && github.event_name == 'issues'
