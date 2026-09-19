@@ -127,6 +127,14 @@ jobs:
             --base "https://f72o8q67mc0lr7-8888.proxy.runpod.net" \
             --password-file /tmp/jpass
 
+      - name: Inspect RDC logs safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ops/runpod_rdc_log_inspect.py \
+            --base "https://f72o8q67mc0lr7-8888.proxy.runpod.net" \
+            --password-file /tmp/jpass
+
       - name: Close issue
         if: always() && github.event_name == 'issues'
         env:
