@@ -19,6 +19,9 @@ jobs:
        github.event.issue.title == '[RUNPOD MIGRATION] JUPYTER DIAG')
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout diagnostic helper
+        uses: actions/checkout@v4
+
       - name: Retrieve migrated Pod Jupyter password privately
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -106,6 +109,15 @@ jobs:
                   if rr.status_code == 200:
                       print(f"contents:{prefix}{path}: PRESENT")
           PY
+
+      - name: Inspect RDC processes through authenticated Jupyter terminal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install websocket-client
+          python3 ops/runpod_rdc_diag.py \
+            --base "https://f72o8q67mc0lr7-8888.proxy.runpod.net" \
+            --password-file /tmp/jpass
 
       - name: Close issue
         if: always() && github.event_name == 'issues'
