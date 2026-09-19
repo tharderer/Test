@@ -1,0 +1,71 @@
+name: RunPod Startup Diagnostics
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD MIGRATION] STARTUP DIAG')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate credential
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$RUNPOD_API_KEY" ]] || { echo "::error::Missing RUNPOD_API_KEY"; exit 2; }
+
+      - name: Capture and sanitize startup diagnostics
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          timeout 15s curl --silent --show-error --no-buffer \
+            --url "https://api.runpod.io/v2/pods/$POD_ID/logs" \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --output /tmp/podlogs.txt || true
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          p = Path('/tmp/podlogs.txt')
+          text = p.read_text(errors='replace') if p.exists() else ''
+          lines = text.splitlines()
+          wanted = re.compile(r'rdc|desktop commander|entrypoint|pre_start|watchdog|supervisor|comfy|unirig|unreal|no such file|permission denied|failed|error', re.I)
+          secretish = re.compile(r'password|token|authorization|api[_ -]?key|secret|jupyter_password|public_key', re.I)
+          chosen = []
+          for line in lines:
+              if wanted.search(line) and not secretish.search(line):
+                  line = re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+\-/=]+', r'\1***', line)
+                  line = re.sub(r'\b[A-Za-z0-9_-]{40,}\b', '***', line)
+                  chosen.append(line[:1200])
+          print(f"Captured log lines: {len(lines)}")
+          print(f"Safe diagnostic matches: {len(chosen)}")
+          for line in chosen[-100:]:
+              print(line)
+          PY
+
+      - name: Close issue
+        if: always() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "Sanitized RunPod startup diagnostic completed."
