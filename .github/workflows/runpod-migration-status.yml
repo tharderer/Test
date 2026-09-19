@@ -101,6 +101,22 @@ jobs:
             costPerHr
           }' /tmp/pod.json
 
+
+      - name: Compare original and replacement API schema
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for POD_ID in "togka5pqf0efbh" "f72o8q67mc0lr7"; do
+            curl --fail --silent --show-error \
+              --url "https://rest.runpod.io/v1/pods/$POD_ID" \
+              --header "Authorization: Bearer $RUNPOD_API_KEY" \
+              --output "/tmp/$POD_ID.json"
+            echo "TOP_LEVEL_KEYS $POD_ID"
+            jq -r 'keys[]' "/tmp/$POD_ID.json" | sort
+          done
+
       - name: Close status request
         if: success() && github.event_name == 'issues'
         env:
