@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
   issues:
     types: [opened]
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
-  actions: write
   contents: read
   issues: write
 
@@ -14,32 +15,56 @@ jobs:
   start-runpod:
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'issues' &&
        github.actor == 'tharderer' &&
        github.event.issue.user.login == 'tharderer' &&
        github.event.issue.title == '[RUNPOD RECOVERY] START')
     runs-on: ubuntu-latest
     steps:
-      - name: Mark public recovery runner started
-        if: github.event_name == 'issues'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh issue comment "${{ github.event.issue.number }}" \
-            --repo "${{ github.repository }}" \
-            --body "Public recovery runner started. Validating the RunPod credential and requesting Pod start."
-
-      - name: Purge exposed proof log
+      - name: Determine recovery request
+        id: gate
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh api --method DELETE \
-            "/repos/${{ github.repository }}/actions/runs/35402621890/logs" || true
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            issue_number="$(
+              gh issue list \
+                --repo "${{ github.repository }}" \
+                --state open \
+                --limit 100 \
+                --json number,title,author \
+                --jq '[.[] | select(.title == "[RUNPOD RECOVERY] START" and .author.login == "tharderer")] | sort_by(.number) | last | .number // empty'
+            )"
+            if [[ -z "$issue_number" ]]; then
+              echo "armed=false" >> "$GITHUB_OUTPUT"
+              echo "No open RunPod recovery request; scheduled retry is idle."
+              exit 0
+            fi
+            echo "armed=true" >> "$GITHUB_OUTPUT"
+            echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "issues" ]]; then
+            echo "armed=true" >> "$GITHUB_OUTPUT"
+            echo "issue_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "armed=true" >> "$GITHUB_OUTPUT"
+            echo "issue_number=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mark public recovery runner started
+        if: steps.gate.outputs.armed == 'true' && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue comment "${{ steps.gate.outputs.issue_number }}" \
+            --repo "${{ github.repository }}" \
+            --body "Public recovery runner started. Validating the RunPod credential and requesting Pod start."
 
       - name: Validate recovery credential
+        if: steps.gate.outputs.armed == 'true'
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         shell: bash
@@ -51,6 +76,7 @@ jobs:
           fi
 
       - name: Inspect safe Pod state
+        if: steps.gate.outputs.armed == 'true'
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         shell: bash
@@ -73,13 +99,23 @@ jobs:
             costPerHr
           }' /tmp/runpod-pod.json
 
-      - name: Start RunPod
+      - name: Start RunPod or keep retry armed
+        if: steps.gate.outputs.armed == 'true'
+        id: start
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
           POD_ID="togka5pqf0efbh"
+
+          current_status="$(jq -r '.desiredStatus // empty' /tmp/runpod-pod.json)"
+          if [[ "$current_status" == "RUNNING" ]]; then
+            echo "result=already-running" >> "$GITHUB_OUTPUT"
+            echo "Pod $POD_ID is already RUNNING."
+            exit 0
+          fi
+
           http_code="$(
             curl --silent --show-error \
               --request POST \
@@ -88,30 +124,65 @@ jobs:
               --output /tmp/runpod-start.json \
               --write-out "%{http_code}"
           )"
+
           if [[ "$http_code" =~ ^2 ]]; then
+            echo "result=started" >> "$GITHUB_OUTPUT"
             echo "RunPod start request accepted for $POD_ID (HTTP $http_code)"
-          else
-            echo "::error::RunPod start request failed for $POD_ID (HTTP $http_code)"
-            if jq -e . /tmp/runpod-start.json >/dev/null 2>&1; then
-              jq 'if type == "object" then {
-                error: .error,
-                message: .message,
-                status: .status,
-                statusCode: .statusCode,
-                code: .code
-              } else {responseType: type} end' /tmp/runpod-start.json
-            else
-              echo "RunPod returned a non-JSON error body; body suppressed for security."
-            fi
-            exit 22
+            exit 0
           fi
 
-      - name: Close successful issue-triggered request
-        if: success() && github.event_name == 'issues'
+          error_message=""
+          if jq -e . /tmp/runpod-start.json >/dev/null 2>&1; then
+            error_message="$(jq -r '.error // .message // empty' /tmp/runpod-start.json)"
+          fi
+
+          if [[ "$error_message" == *"not enough free GPUs on the host machine"* ]]; then
+            echo "result=gpu-unavailable" >> "$GITHUB_OUTPUT"
+            echo "GPU is currently unavailable on the Pod's host. Recovery remains armed for the next scheduled retry."
+            exit 0
+          fi
+
+          echo "::error::RunPod start request failed for $POD_ID (HTTP $http_code)"
+          if jq -e . /tmp/runpod-start.json >/dev/null 2>&1; then
+            jq 'if type == "object" then {
+              error: .error,
+              message: .message,
+              status: .status,
+              statusCode: .statusCode,
+              code: .code
+            } else {responseType: type} end' /tmp/runpod-start.json
+          else
+            echo "RunPod returned a non-JSON error body; body suppressed for security."
+          fi
+          exit 22
+
+      - name: Record GPU-unavailable retry state
+        if: steps.start.outputs.result == 'gpu-unavailable' && github.event_name == 'issues'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh issue close "${{ github.event.issue.number }}" \
+          gh issue comment "${{ steps.gate.outputs.issue_number }}" \
             --repo "${{ github.repository }}" \
-            --comment "RunPod start request was accepted by the RunPod API."
+            --body "RunPod is reachable, but this Pod's original host currently has no free GPU. Recovery remains armed and will retry automatically every five minutes."
+
+      - name: Close completed recovery requests
+        if: steps.start.outputs.result == 'started' || steps.start.outputs.result == 'already-running'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t issues < <(
+            gh issue list \
+              --repo "${{ github.repository }}" \
+              --state open \
+              --limit 100 \
+              --json number,title,author \
+              --jq '.[] | select(.title == "[RUNPOD RECOVERY] START" and .author.login == "tharderer") | .number'
+          )
+          for issue_number in "${issues[@]}"; do
+            gh issue close "$issue_number" \
+              --repo "${{ github.repository }}" \
+              --comment "RunPod recovery completed: Pod togka5pqf0efbh is running or its start request was accepted."
+          done
