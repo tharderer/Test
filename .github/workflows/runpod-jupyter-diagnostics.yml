@@ -135,6 +135,20 @@ jobs:
             --base "https://f72o8q67mc0lr7-8888.proxy.runpod.net" \
             --password-file /tmp/jpass
 
+      - name: Repair persistent RDC runtime when explicitly requested
+        if: github.event_name == 'issues' && contains(github.event.issue.body, 'EXECUTE_RDC_REPAIR')
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install websocket-client
+          python3 ops/runpod_rdc_repair.py \
+            --base "https://f72o8q67mc0lr7-8888.proxy.runpod.net" \
+            --password-file /tmp/jpass
+          sleep 8
+          python3 ops/runpod_rdc_diag.py \
+            --base "https://f72o8q67mc0lr7-8888.proxy.runpod.net" \
+            --password-file /tmp/jpass
+
       - name: Close issue
         if: always() && github.event_name == 'issues'
         env:
