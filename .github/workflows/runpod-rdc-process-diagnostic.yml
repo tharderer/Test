@@ -1,0 +1,148 @@
+name: RunPod RDC Process Diagnostic
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD MIGRATION] RDC DIAG')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve Jupyter password privately
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          query='query { pod(input: { podId: "'"$POD_ID"'" }) { env } }'
+          curl --fail --silent --show-error \
+            --request POST \
+            --header 'content-type: application/json' \
+            --url "https://api.runpod.io/graphql?api_key=$RUNPOD_API_KEY" \
+            --data "$(jq -cn --arg q "$query" '{query:$q}')" \
+            --output /tmp/pod-env.json
+          jq -r '.data.pod.env[]? | select(startswith("JUPYTER_PASSWORD=")) | sub("^JUPYTER_PASSWORD=";"")' /tmp/pod-env.json > /tmp/jpass
+          test -s /tmp/jpass
+          chmod 600 /tmp/jpass
+          echo "Jupyter credential acquired privately."
+
+      - name: Inspect migrated Pod processes through Jupyter terminal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install websocket-client
+          python3 - <<'PY'
+          import json, os, re, time, uuid
+          from pathlib import Path
+          import requests
+          import websocket
+
+          base = "https://f72o8q67mc0lr7-8888.proxy.runpod.net"
+          password = Path("/tmp/jpass").read_text().strip()
+          s = requests.Session()
+          r = s.get(base + "/login", timeout=30)
+          r.raise_for_status()
+          xsrf = s.cookies.get("_xsrf")
+          if not xsrf:
+              m = re.search(r'name=["\']_xsrf["\']\s+value=["\']([^"\']+)', r.text)
+              xsrf = m.group(1) if m else None
+          if not xsrf:
+              raise RuntimeError("No Jupyter XSRF token")
+          r = s.post(base + "/login?next=%2Ftree",
+                     data={"_xsrf": xsrf, "password": password},
+                     headers={"Referer": base + "/login"},
+                     allow_redirects=False, timeout=30)
+          if r.status_code not in (302, 303) or "/login" in r.headers.get("Location",""):
+              raise RuntimeError("Jupyter authentication failed")
+
+          headers = {"X-XSRFToken": xsrf, "Referer": base + "/tree"}
+          r = s.post(base + "/api/terminals", json={}, headers=headers, timeout=30)
+          r.raise_for_status()
+          term = r.json()["name"]
+
+          ws_url = base.replace("https://", "wss://").replace("http://", "ws://") + f"/terminals/websocket/{term}"
+          cookie = "; ".join(f"{c.name}={c.value}" for c in s.cookies)
+          ws = websocket.create_connection(ws_url, cookie=cookie, origin=base, timeout=30)
+
+          marker = "__RDC_DIAG__"
+          remote = r'''python3 - <<'PYY'
+import json, os, pathlib, subprocess
+ps = subprocess.check_output(["ps","-eo","pid,args"], text=True, errors="replace")
+def n(substr):
+    return sum(substr in line for line in ps.splitlines())
+def exists(p):
+    return pathlib.Path(p).exists()
+def executable(p):
+    return os.path.isfile(p) and os.access(p, os.X_OK)
+try:
+    pid1 = pathlib.Path("/proc/1/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace").strip()
+except Exception as e:
+    pid1 = "ERROR:" + type(e).__name__
+diag = {
+    "hostname": os.uname().nodename,
+    "pid1_cmd": pid1,
+    "rdc_entrypoint_exists": exists("/workspace/rdc-entrypoint.sh"),
+    "rdc_entrypoint_executable": executable("/workspace/rdc-entrypoint.sh"),
+    "pre_start_exists": exists("/workspace/pre_start_rdc.sh"),
+    "pre_start_executable": executable("/workspace/pre_start_rdc.sh"),
+    "auth_backup_exists": exists("/workspace/.rdc-auth-backup/device.json"),
+    "rdc_agent_dir_exists": exists("/workspace/factory-runtime/rdc-agent"),
+    "rdc_watchdog_processes": n("rdc-watchdog.sh"),
+    "supervisor_processes": n("runpod-supervisor.sh"),
+    "auth_sync_processes": n("rdc-auth-sync.sh"),
+    "storage_monitor_processes": n("storage-quota-monitor.sh"),
+    "comfy_watchdog_processes": n("comfy-watchdog.sh"),
+    "desktop_commander_processes": sum(
+        1 for line in ps.splitlines()
+        if ("desktop-commander" in line.lower() or "/rdc-agent/" in line.lower())
+        and "python3 - <<'PYY'" not in line
+    ),
+}
+print("__RDC_DIAG__" + json.dumps(diag, sort_keys=True))
+PYY'''
+          ws.send(json.dumps(["stdin", remote + "\n"]))
+
+          deadline = time.time() + 30
+          buf = ""
+          while time.time() < deadline:
+              msg = json.loads(ws.recv())
+              if isinstance(msg, list) and len(msg) >= 2 and msg[0] == "stdout":
+                  buf += msg[1]
+                  if marker in buf:
+                      tail = buf.split(marker,1)[1]
+                      m = re.search(r'(\{.*?\})', tail, re.S)
+                      if m:
+                          diag = json.loads(m.group(1))
+                          print("RDC process diagnostic:")
+                          print(json.dumps(diag, indent=2, sort_keys=True))
+                          break
+          else:
+              raise RuntimeError("Timed out waiting for RDC diagnostic marker")
+
+          try:
+              s.delete(base + f"/api/terminals/{term}", headers=headers, timeout=10)
+          except Exception:
+              pass
+          PY
+
+      - name: Close issue
+        if: always() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "Migrated Pod RDC process diagnostic completed."
