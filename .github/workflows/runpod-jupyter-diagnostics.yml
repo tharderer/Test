@@ -1,0 +1,107 @@
+name: RunPod Jupyter Diagnostics
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == 'tharderer' &&
+       github.event.issue.user.login == 'tharderer' &&
+       github.event.issue.title == '[RUNPOD MIGRATION] JUPYTER DIAG')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve migrated Pod Jupyter password privately
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD_ID="f72o8q67mc0lr7"
+          query='query { pod(input: { podId: "'"$POD_ID"'" }) { env } }'
+          curl --fail --silent --show-error \
+            --request POST \
+            --header 'content-type: application/json' \
+            --url "https://api.runpod.io/graphql?api_key=$RUNPOD_API_KEY" \
+            --data "$(jq -cn --arg q "$query" '{query:$q}')" \
+            --output /tmp/pod-env.json
+          jq -r '.data.pod.env[]? | select(startswith("JUPYTER_PASSWORD=")) | sub("^JUPYTER_PASSWORD=";"")' /tmp/pod-env.json > /tmp/jpass
+          test -s /tmp/jpass || { echo "::error::JUPYTER_PASSWORD not found in Pod environment"; exit 2; }
+          chmod 600 /tmp/jpass
+          echo "Migrated Pod Jupyter credential found (value not printed)."
+
+      - name: Authenticate to Jupyter and verify migration files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          import requests
+          from pathlib import Path
+
+          base = "https://f72o8q67mc0lr7-8888.proxy.runpod.net"
+          password = Path("/tmp/jpass").read_text().strip()
+          s = requests.Session()
+
+          r = s.get(base + "/login", timeout=30)
+          print("Jupyter login page HTTP:", r.status_code)
+          r.raise_for_status()
+
+          xsrf = s.cookies.get("_xsrf")
+          if not xsrf:
+              m = re.search(r'name=["\']_xsrf["\']\s+value=["\']([^"\']+)', r.text)
+              xsrf = m.group(1) if m else None
+          if not xsrf:
+              raise RuntimeError("Jupyter _xsrf token not found")
+
+          r = s.post(
+              base + "/login?next=%2Ftree",
+              data={"_xsrf": xsrf, "password": password},
+              headers={"Referer": base + "/login"},
+              allow_redirects=False,
+              timeout=30,
+          )
+          loc = r.headers.get("Location", "")
+          success = r.status_code in (302, 303) and "/login" not in loc
+          print("Jupyter password authentication:", "PASS" if success else f"FAIL HTTP {r.status_code}")
+          if not success:
+              raise RuntimeError("Jupyter authentication failed")
+
+          r = s.get(base + "/api", timeout=30)
+          print("Jupyter API:", "PASS" if r.status_code == 200 else f"FAIL HTTP {r.status_code}")
+          r.raise_for_status()
+
+          checks = [
+              "rdc-entrypoint.sh",
+              "pre_start_rdc.sh",
+              "rdc-watchdog.sh",
+              "runpod-supervisor.sh",
+              "storage-quota-monitor.sh",
+              "comfy-watchdog.sh",
+              "factory-runtime/rdc-agent",
+              "factory-runtime/ComfyUI",
+              "factory-runtime/UnrealEngine-5.8.2",
+              "bible-world-game",
+          ]
+          for path in checks:
+              rr = s.get(base + "/api/contents/" + path + "?content=0", timeout=30)
+              print(f"workspace:{path}:", "PRESENT" if rr.status_code == 200 else f"NOT_VISIBLE HTTP {rr.status_code}")
+          PY
+
+      - name: Close issue
+        if: always() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "Private-password Jupyter migration diagnostic completed; no credential value was logged."
